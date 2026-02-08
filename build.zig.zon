@@ -1,0 +1,22 @@
+.{
+    .name = .zig_app_template,
+    .version = "0.0.0",
+    .dependencies = .{
+        .zig_ftp_server = .{
+            .path = "../modules/zig-ftp-server",
+        },
+        .structured_text = .{
+            .path = "../modules/zig-structured-text",
+        },
+        .paper_portal_sdk = .{
+            .url = "git+https://github.com/paperportal/zig-sdk#96e2f9571194688f8e37fa8db45722f65add673b",
+            .hash = "paper_portal_sdk-0.0.0-TiKtz3blAQDXtQkVk8Uc90jUAT5PsNeFf4eKhnh_34tj",
+        },
+        .paper_portal_sdk_local = .{
+            .path = "../zig-sdk",
+            .lazy = true,
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0xd0fd6e00eddc110d,
+}
