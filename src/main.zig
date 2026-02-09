@@ -1,10 +1,8 @@
-const std = @import("std");
 const sdk = @import("paper_portal_sdk");
 const ftp = @import("ftp_server");
 const pp_net = @import("pp_net.zig");
 const pp_fs = @import("pp_fs.zig");
 
-const allocator = std.heap.wasm_allocator;
 const display = sdk.display;
 const Server = ftp.server.FtpServer(pp_net.PpNet, pp_fs.PpFs);
 
@@ -47,25 +45,6 @@ var g_reply_buf: [ftp.limits.reply_max]u8 = undefined;
 var g_transfer_buf: [ftp.limits.transfer_max]u8 = undefined;
 var g_scratch_buf: [ftp.limits.scratch_max]u8 = undefined;
 var g_storage: ftp.misc.Storage = undefined;
-
-pub export fn pp_contract_version() i32 {
-    return 1;
-}
-
-pub export fn pp_alloc(len: i32) i32 {
-    if (len <= 0) return 0;
-    const size: usize = @intCast(len);
-    const buf = allocator.alloc(u8, size) catch return 0;
-    return @intCast(@intFromPtr(buf.ptr));
-}
-
-pub export fn pp_free(ptr: i32, len: i32) void {
-    if (ptr == 0 or len <= 0) return;
-    const size: usize = @intCast(len);
-    const addr: usize = @intCast(ptr);
-    const buf = @as([*]u8, @ptrFromInt(addr))[0..size];
-    allocator.free(buf);
-}
 
 pub export fn pp_init(api_version: i32, screen_w: i32, screen_h: i32) i32 {
     _ = api_version;
