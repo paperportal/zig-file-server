@@ -12,5 +12,6 @@ TODO
 Use Zig 0.16 APIs and keep code `~/zig/zig fmt` clean before opening a PR.
 Follow existing naming:
 - Types and public structs/enums: `UpperCamelCase` (for example `Session`, `TransferType`).
-- Functions, locals, file names: `lower_snake_case` (for example `parse_command`, `mock_vfs.zig`).
+- Functions: `lowerCamelCase`, except functions that return a type (Zig) which use `PascalCase` (for example `parseCommand`, `Utf8Decoder`).
+- File names: `lower_snake_case` (for example `mock_vfs.zig`).
 - Keep modules focused by concern (`commands`, `control`, `transfer`, `replies`).

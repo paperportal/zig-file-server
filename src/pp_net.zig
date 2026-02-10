@@ -41,33 +41,33 @@ pub const PpNet = struct {
         if (self.next_pasv_port < self.pasv_port_min or self.next_pasv_port > self.pasv_port_max) {
             self.next_pasv_port = self.pasv_port_min;
         }
-        self.cached_ip = sdk.net.get_ipv4() catch self.cached_ip;
+        self.cached_ip = sdk.net.getIpv4() catch self.cached_ip;
     }
 
     pub fn controlListen(self: *Self, address: Address) interfaces_net.NetError!ControlListener {
         _ = self;
-        var socket = sdk.socket.Socket.tcp() catch |err| return map_socket_error(err);
+        var socket = sdk.socket.Socket.tcp() catch |err| return mapSocketError(err);
         errdefer socket.close() catch {};
-        try bind_and_listen(&socket, address);
+        try bindAndListen(&socket, address);
         return .{ .socket = socket, .local = address };
     }
 
     pub fn acceptControl(self: *Self, listener: *ControlListener) interfaces_net.NetError!?Conn {
         _ = self;
-        const accepted = listener.socket.accept_with_timeout(0) catch |err| switch (err) {
+        const accepted = listener.socket.acceptWithTimeout(0) catch |err| switch (err) {
             error.NotReady => return null,
-            else => return map_socket_error(err),
+            else => return mapSocketError(err),
         };
         const conn: Conn = .{
             .socket = accepted.socket,
             .kind = .control,
-            .peer = socket_addr_to_address(accepted.addr),
+            .peer = socketAddrToAddress(accepted.addr),
         };
-        log_conn_event("connected", &conn);
+        logConnEvent("connected", &conn);
         return conn;
     }
 
-    pub fn pasvListen(self: *Self, hint: interfaces_net.PasvBindHint(Address)) interfaces_net.NetError!PasvListener {
+    pub fn pasvListen(self: *Self, hint: interfaces_net.pasvBindHint(Address)) interfaces_net.NetError!PasvListener {
         var bind_ip: [4]u8 = .{ 0, 0, 0, 0 };
         if (hint.control_local) |control_addr| {
             bind_ip = control_addr.ip;
@@ -76,15 +76,15 @@ pub const PpNet = struct {
         const attempts: usize = @as(usize, self.pasv_port_max) - @as(usize, self.pasv_port_min) + 1;
         var tries: usize = 0;
         while (tries < attempts) : (tries += 1) {
-            const port = self.claim_pasv_port();
-            var socket = sdk.socket.Socket.tcp() catch |err| return map_socket_error(err);
+            const port = self.claimPasvPort();
+            var socket = sdk.socket.Socket.tcp() catch |err| return mapSocketError(err);
             errdefer socket.close() catch {};
-            bind_and_listen(&socket, .{ .ip = bind_ip, .port = port }) catch continue;
+            bindAndListen(&socket, .{ .ip = bind_ip, .port = port }) catch continue;
 
             return .{
                 .socket = socket,
                 .local = .{
-                    .ip = self.current_ip(bind_ip),
+                    .ip = self.currentIp(bind_ip),
                     .port = port,
                 },
             };
@@ -113,16 +113,16 @@ pub const PpNet = struct {
 
     pub fn acceptData(self: *Self, listener: *PasvListener) interfaces_net.NetError!?Conn {
         _ = self;
-        const accepted = listener.socket.accept_with_timeout(0) catch |err| switch (err) {
+        const accepted = listener.socket.acceptWithTimeout(0) catch |err| switch (err) {
             error.NotReady => return null,
-            else => return map_socket_error(err),
+            else => return mapSocketError(err),
         };
         const conn: Conn = .{
             .socket = accepted.socket,
             .kind = .data,
-            .peer = socket_addr_to_address(accepted.addr),
+            .peer = socketAddrToAddress(accepted.addr),
         };
-        log_conn_event("connected", &conn);
+        logConnEvent("connected", &conn);
         return conn;
     }
 
@@ -130,10 +130,10 @@ pub const PpNet = struct {
         _ = self;
         const n = conn.socket.recv(out, 0) catch |err| switch (err) {
             error.NotReady => return error.WouldBlock,
-            else => return map_socket_error(err),
+            else => return mapSocketError(err),
         };
         if (n == 0) return error.Closed;
-        maybe_log_ftp_payload("recv", out[0..n]);
+        maybeLogFtpPayload("recv", out[0..n]);
         return n;
     }
 
@@ -141,16 +141,16 @@ pub const PpNet = struct {
         _ = self;
         const n = conn.socket.send(data, 0) catch |err| switch (err) {
             error.NotReady => return error.WouldBlock,
-            else => return map_socket_error(err),
+            else => return mapSocketError(err),
         };
         if (n == 0) return error.Closed;
-        maybe_log_ftp_payload("send", data[0..n]);
+        maybeLogFtpPayload("send", data[0..n]);
         return n;
     }
 
     pub fn closeConn(self: *Self, conn: *Conn) void {
         _ = self;
-        log_conn_event("disconnected", conn);
+        logConnEvent("disconnected", conn);
         conn.socket.close() catch {};
     }
 
@@ -164,7 +164,7 @@ pub const PpNet = struct {
         listener.socket.close() catch {};
     }
 
-    fn claim_pasv_port(self: *Self) u16 {
+    fn claimPasvPort(self: *Self) u16 {
         const port = self.next_pasv_port;
         self.next_pasv_port = if (self.next_pasv_port >= self.pasv_port_max)
             self.pasv_port_min
@@ -173,19 +173,19 @@ pub const PpNet = struct {
         return port;
     }
 
-    fn current_ip(self: *Self, fallback: [4]u8) [4]u8 {
-        const ip = sdk.net.get_ipv4() catch return if (is_zero_ip(self.cached_ip)) fallback else self.cached_ip;
+    fn currentIp(self: *Self, fallback: [4]u8) [4]u8 {
+        const ip = sdk.net.getIpv4() catch return if (isZeroIp(self.cached_ip)) fallback else self.cached_ip;
         self.cached_ip = ip;
         return ip;
     }
 };
 
-fn bind_and_listen(socket: *sdk.socket.Socket, address: PpNet.Address) interfaces_net.NetError!void {
-    socket.bind(.ipv4(address.ip, address.port)) catch |err| return map_socket_error(err);
-    socket.listen(1) catch |err| return map_socket_error(err);
+fn bindAndListen(socket: *sdk.socket.Socket, address: PpNet.Address) interfaces_net.NetError!void {
+    socket.bind(.ipv4(address.ip, address.port)) catch |err| return mapSocketError(err);
+    socket.listen(1) catch |err| return mapSocketError(err);
 }
 
-fn map_socket_error(err: sdk.errors.Error) interfaces_net.NetError {
+fn mapSocketError(err: sdk.errors.Error) interfaces_net.NetError {
     return switch (err) {
         error.NotReady => error.WouldBlock,
         error.NotFound => error.Closed,
@@ -193,28 +193,28 @@ fn map_socket_error(err: sdk.errors.Error) interfaces_net.NetError {
     };
 }
 
-fn is_zero_ip(ip: [4]u8) bool {
+fn isZeroIp(ip: [4]u8) bool {
     return ip[0] == 0 and ip[1] == 0 and ip[2] == 0 and ip[3] == 0;
 }
 
-fn socket_addr_to_address(addr: sdk.socket.SocketAddr) PpNet.Address {
+fn socketAddrToAddress(addr: sdk.socket.SocketAddr) PpNet.Address {
     return .{
         .ip = addr.ip,
         .port = addr.port,
     };
 }
 
-fn conn_kind_label(kind: PpNet.ConnKind) []const u8 {
+fn connKindLabel(kind: PpNet.ConnKind) []const u8 {
     return switch (kind) {
         .control => "control",
         .data => "data",
     };
 }
 
-fn log_conn_event(event: []const u8, conn: *const PpNet.Conn) void {
+fn logConnEvent(event: []const u8, conn: *const PpNet.Conn) void {
     sdk.core.log.finfo("ftp client {s} ({s}) {d}.{d}.{d}.{d}:{d}", .{
         event,
-        conn_kind_label(conn.kind),
+        connKindLabel(conn.kind),
         conn.peer.ip[0],
         conn.peer.ip[1],
         conn.peer.ip[2],
@@ -223,16 +223,16 @@ fn log_conn_event(event: []const u8, conn: *const PpNet.Conn) void {
     });
 }
 
-fn maybe_log_ftp_payload(direction: []const u8, payload: []const u8) void {
+fn maybeLogFtpPayload(direction: []const u8, payload: []const u8) void {
     // Keep logs focused on FTP control frames; skip likely data-transfer chunks.
-    if (!looks_like_control_payload(payload)) return;
+    if (!looksLikeControlPayload(payload)) return;
 
     var escaped_buf: [220]u8 = undefined;
-    const escaped = escape_payload(payload, escaped_buf[0..]);
+    const escaped = escapePayload(payload, escaped_buf[0..]);
     sdk.core.log.finfo("ftp {s} {d}B: \"{s}\"", .{ direction, payload.len, escaped });
 }
 
-fn looks_like_control_payload(payload: []const u8) bool {
+fn looksLikeControlPayload(payload: []const u8) bool {
     if (payload.len == 0) return false;
     if (payload.len > 200) return false;
     if (std.mem.indexOfAny(u8, payload, "\r\n") == null) return false;
@@ -245,7 +245,7 @@ fn looks_like_control_payload(payload: []const u8) bool {
     return true;
 }
 
-fn escape_payload(payload: []const u8, out: []u8) []const u8 {
+fn escapePayload(payload: []const u8, out: []u8) []const u8 {
     var j: usize = 0;
     var truncated = false;
 
@@ -294,9 +294,9 @@ test "formatPasvAddress writes RFC tuple" {
 }
 
 test "map_socket_error maps NotReady to WouldBlock" {
-    try std.testing.expectEqual(error.WouldBlock, map_socket_error(error.NotReady));
-    try std.testing.expectEqual(error.Io, map_socket_error(error.Internal));
-    try std.testing.expectEqual(error.Closed, map_socket_error(error.NotFound));
+    try std.testing.expectEqual(error.WouldBlock, mapSocketError(error.NotReady));
+    try std.testing.expectEqual(error.Io, mapSocketError(error.Internal));
+    try std.testing.expectEqual(error.Closed, mapSocketError(error.NotFound));
 }
 
 test "claim_pasv_port wraps at upper bound" {
@@ -305,12 +305,12 @@ test "claim_pasv_port wraps at upper bound" {
         .pasv_port_max = 50001,
         .next_pasv_port = 50001,
     };
-    try std.testing.expectEqual(@as(u16, 50001), net.claim_pasv_port());
-    try std.testing.expectEqual(@as(u16, 50000), net.claim_pasv_port());
+    try std.testing.expectEqual(@as(u16, 50001), net.claimPasvPort());
+    try std.testing.expectEqual(@as(u16, 50000), net.claimPasvPort());
 }
 
 test "socket_addr_to_address keeps peer endpoint" {
-    const addr = socket_addr_to_address(.ipv4(.{ 10, 20, 30, 40 }, 2121));
+    const addr = socketAddrToAddress(.ipv4(.{ 10, 20, 30, 40 }, 2121));
     try std.testing.expectEqual(@as(u8, 10), addr.ip[0]);
     try std.testing.expectEqual(@as(u8, 20), addr.ip[1]);
     try std.testing.expectEqual(@as(u8, 30), addr.ip[2]);
@@ -319,14 +319,14 @@ test "socket_addr_to_address keeps peer endpoint" {
 }
 
 test "conn_kind_label returns expected values" {
-    try std.testing.expectEqualStrings("control", conn_kind_label(.control));
-    try std.testing.expectEqualStrings("data", conn_kind_label(.data));
+    try std.testing.expectEqualStrings("control", connKindLabel(.control));
+    try std.testing.expectEqualStrings("data", connKindLabel(.data));
 }
 
 test "looks_like_control_payload accepts FTP lines and rejects binary chunks" {
-    try std.testing.expect(looks_like_control_payload("USER portal\r\n"));
-    try std.testing.expect(looks_like_control_payload("331 User name okay, need password\r\n"));
+    try std.testing.expect(looksLikeControlPayload("USER portal\r\n"));
+    try std.testing.expect(looksLikeControlPayload("331 User name okay, need password\r\n"));
 
     const binary = [_]u8{ 0x00, 0x01, 0x02, 0xff };
-    try std.testing.expect(!looks_like_control_payload(binary[0..]));
+    try std.testing.expect(!looksLikeControlPayload(binary[0..]));
 }

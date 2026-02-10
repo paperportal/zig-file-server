@@ -3,7 +3,7 @@ const ftp = @import("ftp_server");
 const pp_net = @import("pp_net.zig");
 const pp_fs = @import("pp_fs.zig");
 
-const Server = ftp.server.FtpServer(pp_net.PpNet, pp_fs.PpFs);
+const Server = ftp.server.ftpServer(pp_net.PpNet, pp_fs.PpFs);
 
 pub const FtpService = struct {
     net: pp_net.PpNet = .{},
@@ -16,7 +16,7 @@ pub const FtpService = struct {
     scratch_buf: [ftp.limits.scratch_max]u8 = undefined,
     storage: ftp.misc.Storage = undefined,
 
-    pub fn is_running(self: *const FtpService) bool {
+    pub fn isRunning(self: *const FtpService) bool {
         return self.server != null;
     }
 
@@ -33,11 +33,11 @@ pub const FtpService = struct {
     pub fn start(self: *FtpService) !void {
         if (self.server != null) return;
 
-        if (!sdk.net.is_ready()) {
+        if (!sdk.net.isReady()) {
             try sdk.net.connect();
         }
 
-        if (!sdk.fs.is_mounted()) {
+        if (!sdk.fs.isMounted()) {
             try sdk.fs.mount();
         }
 
@@ -82,9 +82,9 @@ pub const FtpService = struct {
                 server.list_iter = null;
             }
 
-            if (server.file_reader) |*reader| {
+            if (server.fileReader) |*reader| {
                 self.fs.closeRead(reader);
-                server.file_reader = null;
+                server.fileReader = null;
             }
 
             if (server.file_writer) |*writer| {

@@ -46,11 +46,11 @@ pub const PpFs = struct {
     pub fn cwdChange(self: *PpFs, cwd: *Cwd, user_path: []const u8) interfaces_fs.FsError!void {
         _ = self;
         var next_ftp: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, next_ftp[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, next_ftp[0..]);
 
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        const meta = sdk.fs.metadata(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        const meta = sdk.fs.metadata(host_path) catch |err| return mapFsError(err);
         if (!meta.is_dir) return error.NotDir;
 
         std.mem.copyForwards(u8, cwd.path[0..ftp_path.len], ftp_path);
@@ -65,7 +65,7 @@ pub const PpFs = struct {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
         const ftp_path = if (path) |p|
-            try normalize_ftp_path(cwd, p, ftp_buf[0..])
+            try normalizeFtpPath(cwd, p, ftp_buf[0..])
         else blk: {
             if (cwd.len > ftp_buf.len) return error.InvalidPath;
             std.mem.copyForwards(u8, ftp_buf[0..cwd.len], cwd.path[0..cwd.len]);
@@ -73,8 +73,8 @@ pub const PpFs = struct {
         };
 
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        const dir = sdk.fs.Dir.open(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        const dir = sdk.fs.Dir.open(host_path) catch |err| return mapFsError(err);
 
         var iter: DirIter = .{
             .dir = dir,
@@ -87,7 +87,7 @@ pub const PpFs = struct {
     pub fn dirNext(self: *PpFs, iter: *DirIter) interfaces_fs.FsError!?interfaces_fs.DirEntry {
         _ = self;
         while (true) {
-            const maybe_name_len = iter.dir.read_name(iter.name_buf[0..]) catch |err| return map_fs_error(err);
+            const maybe_name_len = iter.dir.readName(iter.name_buf[0..]) catch |err| return mapFsError(err);
             if (maybe_name_len == null) return null;
 
             const name_len = maybe_name_len.?;
@@ -95,8 +95,8 @@ pub const PpFs = struct {
             const name = iter.name_buf[0..name_len];
             if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
 
-            const child_path = try join_child_path(iter.base_host[0..iter.base_host_len], name, iter.child_path_buf[0..]);
-            const meta = sdk.fs.metadata(child_path) catch |err| return map_fs_error(err);
+            const child_path = try joinChildPath(iter.base_host[0..iter.base_host_len], name, iter.child_path_buf[0..]);
+            const meta = sdk.fs.metadata(child_path) catch |err| return mapFsError(err);
             const kind: interfaces_fs.PathKind = if (meta.is_dir) .dir else .file;
 
             return .{
@@ -116,36 +116,36 @@ pub const PpFs = struct {
     pub fn openRead(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!FileReader {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
 
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        const meta = sdk.fs.metadata(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        const meta = sdk.fs.metadata(host_path) catch |err| return mapFsError(err);
         if (meta.is_dir) return error.IsDir;
 
-        const file = sdk.fs.File.open(host_path, sdk.fs.FS_READ) catch |err| return map_fs_error(err);
+        const file = sdk.fs.File.open(host_path, sdk.fs.FS_READ) catch |err| return mapFsError(err);
         return .{ .file = file };
     }
 
     pub fn openWriteTrunc(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!FileWriter {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
 
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        const file = sdk.fs.File.open(host_path, sdk.fs.FS_WRITE | sdk.fs.FS_CREATE | sdk.fs.FS_TRUNC) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        const file = sdk.fs.File.open(host_path, sdk.fs.FS_WRITE | sdk.fs.FS_CREATE | sdk.fs.FS_TRUNC) catch |err| return mapFsError(err);
         return .{ .file = file };
     }
 
     pub fn readFile(self: *PpFs, reader: *FileReader, out: []u8) interfaces_fs.FsError!usize {
         _ = self;
-        return reader.file.read(out) catch |err| map_fs_error(err);
+        return reader.file.read(out) catch |err| mapFsError(err);
     }
 
     pub fn writeFile(self: *PpFs, writer: *FileWriter, src: []const u8) interfaces_fs.FsError!usize {
         _ = self;
-        return writer.file.write(src) catch |err| map_fs_error(err);
+        return writer.file.write(src) catch |err| mapFsError(err);
     }
 
     pub fn closeRead(self: *PpFs, reader: *FileReader) void {
@@ -161,51 +161,51 @@ pub const PpFs = struct {
     pub fn delete(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!void {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        sdk.fs.remove(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        sdk.fs.remove(host_path) catch |err| return mapFsError(err);
     }
 
     pub fn rename(self: *PpFs, cwd: *const Cwd, from_path: []const u8, to_path: []const u8) interfaces_fs.FsError!void {
         _ = self;
         var from_ftp_buf: [cwd_path_max]u8 = undefined;
         var to_ftp_buf: [cwd_path_max]u8 = undefined;
-        const from_ftp = try normalize_ftp_path(cwd, from_path, from_ftp_buf[0..]);
-        const to_ftp = try normalize_ftp_path(cwd, to_path, to_ftp_buf[0..]);
+        const from_ftp = try normalizeFtpPath(cwd, from_path, from_ftp_buf[0..]);
+        const to_ftp = try normalizeFtpPath(cwd, to_path, to_ftp_buf[0..]);
 
         var from_host_buf: [host_path_max]u8 = undefined;
         var to_host_buf: [host_path_max]u8 = undefined;
-        const from_host = try host_path_from_ftp(from_ftp, from_host_buf[0..]);
-        const to_host = try host_path_from_ftp(to_ftp, to_host_buf[0..]);
-        sdk.fs.rename(from_host, to_host) catch |err| return map_fs_error(err);
+        const from_host = try hostPathFromFtp(from_ftp, from_host_buf[0..]);
+        const to_host = try hostPathFromFtp(to_ftp, to_host_buf[0..]);
+        sdk.fs.rename(from_host, to_host) catch |err| return mapFsError(err);
     }
 
     pub fn makeDir(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!void {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        sdk.fs.Dir.mkdir(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        sdk.fs.Dir.mkdir(host_path) catch |err| return mapFsError(err);
     }
 
     pub fn removeDir(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!void {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        sdk.fs.Dir.rmdir(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        sdk.fs.Dir.rmdir(host_path) catch |err| return mapFsError(err);
     }
 
     pub fn fileSize(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!u64 {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        const meta = sdk.fs.metadata(host_path) catch |err| return map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        const meta = sdk.fs.metadata(host_path) catch |err| return mapFsError(err);
         if (meta.is_dir) return error.IsDir;
         return meta.size;
     }
@@ -213,14 +213,14 @@ pub const PpFs = struct {
     pub fn fileMtime(self: *PpFs, cwd: *const Cwd, user_path: []const u8) interfaces_fs.FsError!i64 {
         _ = self;
         var ftp_buf: [cwd_path_max]u8 = undefined;
-        const ftp_path = try normalize_ftp_path(cwd, user_path, ftp_buf[0..]);
+        const ftp_path = try normalizeFtpPath(cwd, user_path, ftp_buf[0..]);
         var host_buf: [host_path_max]u8 = undefined;
-        const host_path = try host_path_from_ftp(ftp_path, host_buf[0..]);
-        return sdk.fs.mtime(host_path) catch |err| map_fs_error(err);
+        const host_path = try hostPathFromFtp(ftp_path, host_buf[0..]);
+        return sdk.fs.mtime(host_path) catch |err| mapFsError(err);
     }
 };
 
-fn normalize_ftp_path(cwd: *const PpFs.Cwd, user_path: []const u8, out: []u8) interfaces_fs.FsError![]const u8 {
+fn normalizeFtpPath(cwd: *const PpFs.Cwd, user_path: []const u8, out: []u8) interfaces_fs.FsError![]const u8 {
     if (user_path.len == 0) return error.InvalidPath;
     if (std.mem.indexOfScalar(u8, user_path, 0) != null) return error.InvalidPath;
 
@@ -273,7 +273,7 @@ fn normalize_ftp_path(cwd: *const PpFs.Cwd, user_path: []const u8, out: []u8) in
     return out[0..next_len];
 }
 
-fn host_path_from_ftp(ftp_path: []const u8, out: []u8) interfaces_fs.FsError![:0]const u8 {
+fn hostPathFromFtp(ftp_path: []const u8, out: []u8) interfaces_fs.FsError![:0]const u8 {
     if (ftp_path.len == 0 or ftp_path[0] != '/') return error.InvalidPath;
     if (std.mem.indexOfScalar(u8, ftp_path, 0) != null) return error.InvalidPath;
 
@@ -292,7 +292,7 @@ fn host_path_from_ftp(ftp_path: []const u8, out: []u8) interfaces_fs.FsError![:0
     return out[0..total_len :0];
 }
 
-fn join_child_path(base: []const u8, name: []const u8, out: []u8) interfaces_fs.FsError![:0]const u8 {
+fn joinChildPath(base: []const u8, name: []const u8, out: []u8) interfaces_fs.FsError![:0]const u8 {
     if (std.mem.indexOfScalar(u8, name, 0) != null) return error.InvalidPath;
     const need_slash = base.len == 0 or base[base.len - 1] != '/';
     const total_len = base.len + (if (need_slash) @as(usize, 1) else 0) + name.len;
@@ -309,7 +309,7 @@ fn join_child_path(base: []const u8, name: []const u8, out: []u8) interfaces_fs.
     return out[0..idx :0];
 }
 
-fn map_fs_error(err: sdk.errors.Error) interfaces_fs.FsError {
+fn mapFsError(err: sdk.errors.Error) interfaces_fs.FsError {
     return switch (err) {
         error.InvalidArgument => error.InvalidPath,
         error.NotFound => error.NotFound,
@@ -327,7 +327,7 @@ test "normalize_ftp_path clamps parent traversal at root" {
     cwd.len = 4;
 
     var out: [cwd_path_max]u8 = undefined;
-    const path = try normalize_ftp_path(&cwd, "../../../etc", out[0..]);
+    const path = try normalizeFtpPath(&cwd, "../../../etc", out[0..]);
     try std.testing.expectEqualStrings("/etc", path);
 }
 
@@ -336,19 +336,19 @@ test "normalize_ftp_path rejects nul bytes" {
     var cwd = try PpFs.cwdInit(&fs);
     var out: [cwd_path_max]u8 = undefined;
     const bad = [_]u8{ 'a', 0, 'b' };
-    try std.testing.expectError(error.InvalidPath, normalize_ftp_path(&cwd, bad[0..], out[0..]));
+    try std.testing.expectError(error.InvalidPath, normalizeFtpPath(&cwd, bad[0..], out[0..]));
 }
 
 test "host_path_from_ftp maps root to /sdcard" {
     var out: [host_path_max]u8 = undefined;
-    const host = try host_path_from_ftp("/", out[0..]);
+    const host = try hostPathFromFtp("/", out[0..]);
     try std.testing.expectEqualStrings("/sdcard", host);
 }
 
 test "map_fs_error maps sdk errors" {
-    try std.testing.expectEqual(error.InvalidPath, map_fs_error(error.InvalidArgument));
-    try std.testing.expectEqual(error.NotFound, map_fs_error(error.NotFound));
-    try std.testing.expectEqual(error.Io, map_fs_error(error.NotReady));
+    try std.testing.expectEqual(error.InvalidPath, mapFsError(error.InvalidArgument));
+    try std.testing.expectEqual(error.NotFound, mapFsError(error.NotFound));
+    try std.testing.expectEqual(error.Io, mapFsError(error.NotReady));
 }
 
 test "fileMtime path normalization works" {
@@ -361,6 +361,6 @@ test "fileMtime path normalization works" {
     cwd.len = 4;
 
     var ftp_buf: [cwd_path_max]u8 = undefined;
-    const ftp_path = try normalize_ftp_path(&cwd, "../settings.bin", ftp_buf[0..]);
+    const ftp_path = try normalizeFtpPath(&cwd, "../settings.bin", ftp_buf[0..]);
     try std.testing.expectEqualStrings("/settings.bin", ftp_path);
 }
