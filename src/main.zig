@@ -168,7 +168,7 @@ pub export fn ppInit(api_version: i32, screen_w: i32, screen_h: i32, args_ptr: i
     _ = args_ptr;
     _ = args_len;
 
-    sdk.core.begin() catch |err| {
+    sdk.core.begin(.lgfx) catch |err| {
         sdk.core.log.ferr("ppInit: core.begin failed: {s}", .{@errorName(err)});
         return -1;
     };

@@ -1,6 +1,6 @@
 .{
-    .name = .zig_app_template,
-    .version = "0.0.0",
+    .name = .zig_file_server,
+    .version = "0.1.0",
     .dependencies = .{
         .zig_ftp_server = .{
             .path = "../modules/zig-ftp-server",
@@ -15,5 +15,5 @@
         },
     },
     .paths = .{""},
-    .fingerprint = 0xd0fd6e00eddc110d,
+    .fingerprint = 0x20998fea1c5f7f31,
 }

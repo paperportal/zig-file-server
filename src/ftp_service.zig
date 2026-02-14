@@ -3,7 +3,7 @@ const ftp = @import("ftp_server");
 const pp_net = @import("pp_net.zig");
 const pp_fs = @import("pp_fs.zig");
 
-const Server = ftp.server.ftpServer(pp_net.PpNet, pp_fs.PpFs);
+const Server = ftp.server.FtpServer(pp_net.PpNet, pp_fs.PpFs);
 
 pub const FtpService = struct {
     net: pp_net.PpNet = .{},
@@ -82,9 +82,9 @@ pub const FtpService = struct {
                 server.list_iter = null;
             }
 
-            if (server.fileReader) |*reader| {
+            if (server.file_reader) |*reader| {
                 self.fs.closeRead(reader);
-                server.fileReader = null;
+                server.file_reader = null;
             }
 
             if (server.file_writer) |*writer| {

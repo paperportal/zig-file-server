@@ -67,7 +67,7 @@ pub const PpNet = struct {
         return conn;
     }
 
-    pub fn pasvListen(self: *Self, hint: interfaces_net.pasvBindHint(Address)) interfaces_net.NetError!PasvListener {
+    pub fn pasvListen(self: *Self, hint: interfaces_net.PasvBindHint(Address)) interfaces_net.NetError!PasvListener {
         var bind_ip: [4]u8 = .{ 0, 0, 0, 0 };
         if (hint.control_local) |control_addr| {
             bind_ip = control_addr.ip;
