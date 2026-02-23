@@ -7,7 +7,6 @@ pub fn build(b: *std.Build) void {
         .export_symbol_names = &.{
             "ppInit",
             "ppShutdown",
-            "ppTick",
             "ppOnGesture",
         },
     });

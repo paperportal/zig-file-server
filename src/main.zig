@@ -1,6 +1,7 @@
 const std = @import("std");
 const sdk = @import("paper_portal_sdk");
 const display = sdk.display;
+const microtask = sdk.microtask;
 const ui = sdk.ui;
 const ftp_service = @import("ftp_service.zig");
 
@@ -163,12 +164,25 @@ const MainScene = struct {
 var g_stack: ui.SceneStack = undefined;
 var g_main: MainScene = .{};
 
+const UiLoopTask = struct {
+    pub fn step(self: *UiLoopTask, now_ms: u32) anyerror!microtask.Action {
+        _ = self;
+        const now_ms_i32: i32 = if (now_ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(now_ms);
+        g_stack.tick(now_ms_i32) catch |err| {
+            sdk.core.log.ferr("microtask ui tick failed: {s}", .{@errorName(err)});
+        };
+        return microtask.Action.sleepMs(33);
+    }
+};
+
+var g_ui_loop_task: UiLoopTask = .{};
+
 pub export fn ppInit(api_version: i32, screen_w: i32, screen_h: i32, args_ptr: i32, args_len: i32) i32 {
     _ = api_version;
     _ = args_ptr;
     _ = args_len;
 
-    sdk.core.begin(.lgfx) catch |err| {
+    sdk.core.begin() catch |err| {
         sdk.core.log.ferr("ppInit: core.begin failed: {s}", .{@errorName(err)});
         return -1;
     };
@@ -197,15 +211,13 @@ pub export fn ppInit(api_version: i32, screen_w: i32, screen_h: i32, args_ptr: i
         return -1;
     };
 
-    sdk.core.log.info("ppInit: File Server UI initialized");
-    return 0;
-}
-
-pub export fn ppTick(now_ms: i32) i32 {
-    g_stack.tick(now_ms) catch |err| {
-        sdk.core.log.ferr("ppTick: ui tick failed: {s}", .{@errorName(err)});
+    _ = microtask.start(microtask.Task.from(UiLoopTask, &g_ui_loop_task), 33, 0) catch |err| {
+        sdk.core.log.ferr("ppInit: microtask.start failed: {s}", .{@errorName(err)});
+        g_stack.deinit();
+        return -1;
     };
 
+    sdk.core.log.info("ppInit: File Server UI initialized");
     return 0;
 }
 
