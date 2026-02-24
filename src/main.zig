@@ -5,26 +5,13 @@ const microtask = sdk.microtask;
 const ui = sdk.ui;
 const ftp_service = @import("ftp_service.zig");
 
-const allocator = std.heap.wasm_allocator;
-
-const Rect = struct {
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-
-    fn contains(self: Rect, px: i32, py: i32) bool {
-        return px >= self.x and py >= self.y and px < self.x + self.w and py < self.y + self.h;
-    }
-};
-
 const Layout = struct {
     title_x: i32,
     title_y: i32,
     status_x: i32,
     status_y: i32,
-    start_stop_rect: Rect,
-    exit_rect: Rect,
+    start_stop_rect: ui.Rect,
+    exit_rect: ui.Rect,
 };
 
 const Tap = struct {
@@ -33,11 +20,11 @@ const Tap = struct {
 };
 
 const MainScene = struct {
-    pending_tap: ?Tap = null,
     ftp: ftp_service.FtpService = .{},
 
     pub fn draw(self: *MainScene, ctx: *ui.Context) anyerror!void {
-        const layout = computeLayout(ctx);
+        _ = ctx;
+        const layout = computeLayout();
 
         try display.startWrite();
         try display.fillScreen(display.colors.WHITE);
@@ -62,23 +49,19 @@ const MainScene = struct {
         _ = ctx;
         _ = nav;
         if (ev.kind == .tap) {
-            self.pending_tap = .{ .x = ev.x, .y = ev.y };
-        }
-    }
-
-    pub fn tick(self: *MainScene, ctx: *ui.Context, nav: *ui.Navigator, now_ms: i32) anyerror!void {
-        if (self.pending_tap) |tap| {
-            self.pending_tap = null;
-            const changed = try self.handleTap(ctx, tap.x, tap.y);
+            const changed = self.handleTap(ev.x, ev.y) catch |err| blk: {
+                sdk.core.log.ferr("handle tap failed: {s}", .{@errorName(err)});
+                break :blk false;
+            };
             if (changed) {
-                try nav.redraw();
+                ui.scene.redraw() catch |err| {
+                    sdk.core.log.ferr("ui.scene.redraw failed: {s}", .{@errorName(err)});
+                };
             }
         }
-
-        self.ftp.tick(now_ms);
     }
 
-    fn drawButton(rect: Rect, label: []const u8) display.Error!void {
+    fn drawButton(rect: ui.Rect, label: []const u8) display.Error!void {
         try display.fillRect(rect.x, rect.y, rect.w, rect.h, display.colors.WHITE);
         try display.drawRect(rect.x, rect.y, rect.w, rect.h, display.colors.BLACK);
 
@@ -89,9 +72,9 @@ const MainScene = struct {
         try display.text.setDatum(.top_left);
     }
 
-    fn computeLayout(ctx: *const ui.Context) Layout {
-        const screen_w = resolveScreenWidth(ctx);
-        const screen_h = resolveScreenHeight(ctx);
+    fn computeLayout() Layout {
+        const screen_w = display.width();
+        const screen_h = display.height();
         const margin: i32 = 16;
         const gap: i32 = 18;
         const button_h: i32 = 56;
@@ -124,20 +107,8 @@ const MainScene = struct {
         };
     }
 
-    fn resolveScreenWidth(ctx: *const ui.Context) i32 {
-        if (ctx.screen_w > 0) return ctx.screen_w;
-        const w = display.width();
-        return if (w > 0) w else 320;
-    }
-
-    fn resolveScreenHeight(ctx: *const ui.Context) i32 {
-        if (ctx.screen_h > 0) return ctx.screen_h;
-        const h = display.height();
-        return if (h > 0) h else 240;
-    }
-
-    fn handleTap(self: *MainScene, ctx: *const ui.Context, x: i32, y: i32) !bool {
-        const layout = computeLayout(ctx);
+    fn handleTap(self: *MainScene, x: i32, y: i32) !bool {
+        const layout = computeLayout();
 
         if (layout.start_stop_rect.contains(x, y)) {
             if (self.ftp.isRunning()) {
@@ -161,76 +132,60 @@ const MainScene = struct {
     }
 };
 
-var g_stack: ui.SceneStack = undefined;
 var g_main: MainScene = .{};
 
 const UiLoopTask = struct {
     pub fn step(self: *UiLoopTask, now_ms: u32) anyerror!microtask.Action {
         _ = self;
         const now_ms_i32: i32 = if (now_ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(now_ms);
-        g_stack.tick(now_ms_i32) catch |err| {
-            sdk.core.log.ferr("microtask ui tick failed: {s}", .{@errorName(err)});
-        };
+        g_main.ftp.tick(now_ms_i32);
         return microtask.Action.sleepMs(33);
     }
 };
 
 var g_ui_loop_task: UiLoopTask = .{};
 
-pub export fn ppInit(api_version: i32, screen_w: i32, screen_h: i32, args_ptr: i32, args_len: i32) i32 {
-    _ = api_version;
-    _ = args_ptr;
-    _ = args_len;
-
+pub fn main() void {
     sdk.core.begin() catch |err| {
-        sdk.core.log.ferr("ppInit: core.begin failed: {s}", .{@errorName(err)});
-        return -1;
+        sdk.core.log.ferr("main: core.begin failed: {s}", .{@errorName(err)});
+        return;
     };
 
     const runtime_features_raw = sdk.core.apiFeatures();
     const features: u64 = @bitCast(runtime_features_raw);
-    sdk.core.log.finfo("ppInit: runtime features=0x{x}", .{features});
+    sdk.core.log.finfo("main: runtime features=0x{x}", .{features});
 
     const required = sdk.core.Feature.fs |
         sdk.core.Feature.socket |
         sdk.core.Feature.display_basics |
         sdk.core.Feature.display_text;
     if ((features & required) != required) {
-        sdk.core.log.err("ppInit: missing fs/socket/display host features");
-        return -1;
+        sdk.core.log.err("main: missing fs/socket/display host features");
+        return;
     }
 
     display.epd.setMode(display.epd.TEXT) catch {};
     display.text.setFont(1) catch {};
     display.text.setWrap(false, false) catch {};
 
-    g_stack = ui.SceneStack.init(allocator, screen_w, screen_h, 4);
-    g_stack.setInitial(ui.Scene.from(MainScene, &g_main)) catch |err| {
-        sdk.core.log.ferr("ppInit: setInitial failed: {s}", .{@errorName(err)});
-        g_stack.deinit();
-        return -1;
+    ui.scene.set(ui.Scene.from(MainScene, &g_main)) catch |err| {
+        sdk.core.log.ferr("main: ui.scene.set failed: {s}", .{@errorName(err)});
+        ui.scene.deinitStack();
+        return;
     };
 
     _ = microtask.start(microtask.Task.from(UiLoopTask, &g_ui_loop_task), 33, 0) catch |err| {
-        sdk.core.log.ferr("ppInit: microtask.start failed: {s}", .{@errorName(err)});
-        g_stack.deinit();
-        return -1;
+        sdk.core.log.ferr("main: microtask.start failed: {s}", .{@errorName(err)});
+        ui.scene.deinitStack();
+        return;
     };
 
-    sdk.core.log.info("ppInit: File Server UI initialized");
-    return 0;
-}
-
-pub export fn ppOnGesture(kind: i32, x: i32, y: i32, dx: i32, dy: i32, duration_ms: i32, now_ms: i32, flags: i32) i32 {
-    g_stack.handleGestureFromArgs(kind, x, y, dx, dy, duration_ms, now_ms, flags) catch |err| {
-        sdk.core.log.ferr("ppOnGesture: handleGesture failed: {s}", .{@errorName(err)});
-    };
-
-    return 0;
+    sdk.core.log.info("main: File Server UI initialized");
+    return;
 }
 
 pub export fn ppShutdown() i32 {
     g_main.ftp.stop();
-    g_stack.deinit();
+    ui.scene.deinitStack();
     return 0;
 }

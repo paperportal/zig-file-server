@@ -6,8 +6,8 @@
             .path = "../modules/zig-ftp-server",
         },
         .paper_portal_sdk = .{
-            .url = "git+https://github.com/paperportal/zig-sdk#edbf4ca2728901ec9119d14aa600bd7a994e425b",
-            .hash = "paper_portal_sdk-0.0.0-TiKtz5HMAgC0RlGnq0iCMTESIfLjzli_MmUVbPHYgvHu",
+            .url = "git+https://github.com/paperportal/zig-sdk#39dc94e24eb7da50c3306e616008a5d26284dc45",
+            .hash = "paper_portal_sdk-0.1.0-TiKtz1vRAgCgJSYbZkzXfOqjc9XtM4AIRlGfMfO9tQuI",
         },
         .paper_portal_sdk_local = .{
             .path = "../zig-sdk",

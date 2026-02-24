@@ -4,11 +4,7 @@ const sdk = @import("paper_portal_sdk");
 pub fn build(b: *std.Build) void {
     const app = sdk.addPortalApp(b, .{
         .local_sdk_path = "../zig-sdk",
-        .export_symbol_names = &.{
-            "ppInit",
-            "ppShutdown",
-            "ppOnGesture",
-        },
+        .export_symbol_names = &.{"ppShutdown"},
     });
 
     _ = sdk.addPortalPackage(b, app.exe, .{
