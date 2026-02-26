@@ -1,10 +1,14 @@
 const std = @import("std");
 const sdk = @import("paper_portal_sdk");
 
+/// Maintains shared state needed to implement `std.Io` directory iteration on Portal.
 pub const PortalIoState = struct {
+    /// Allocator used for bookkeeping allocations.
     allocator: std.mem.Allocator = std.heap.wasm_allocator,
+    /// Maps directory handles to their relative paths for reopen-on-reset behavior.
     dir_rel_paths: std.AutoHashMapUnmanaged(i32, []u8) = .{},
 
+    /// Releases any state owned by this I/O adapter.
     pub fn deinit(self: *PortalIoState) void {
         var it = self.dir_rel_paths.iterator();
         while (it.next()) |entry| {
@@ -13,6 +17,7 @@ pub const PortalIoState = struct {
         self.dir_rel_paths.deinit(self.allocator);
     }
 
+    /// Records a mapping from a directory handle to its relative path.
     fn registerDir(self: *PortalIoState, handle: i32, rel: []const u8) !void {
         if (handle < 0) return error.InvalidArgument;
         const buf = try self.allocator.alloc(u8, rel.len);
@@ -26,21 +31,27 @@ pub const PortalIoState = struct {
         gop.value_ptr.* = buf;
     }
 
+    /// Removes any mapping for `handle`.
     fn unregisterDir(self: *PortalIoState, handle: i32) void {
         if (handle < 0) return;
         const removed = self.dir_rel_paths.fetchRemove(handle) orelse return;
         self.allocator.free(removed.value);
     }
 
+    /// Returns the relative path associated with `handle`, if any.
     fn relForDir(self: *PortalIoState, handle: i32) ?[]const u8 {
         return self.dir_rel_paths.get(handle);
     }
 };
 
+/// Implements `std.Io` using Portal filesystem primitives.
 pub const PortalIo = struct {
+    /// Whether the static vtable has been initialized.
     var initialized: bool = false;
+    /// Shared `std.Io` vtable used for all `PortalIoState` instances.
     var vtable: std.Io.VTable = undefined;
 
+    /// Initializes the shared `std.Io` vtable once per process.
     pub fn ensureInitialized() void {
         if (initialized) return;
         vtable = undefined;
@@ -58,11 +69,13 @@ pub const PortalIo = struct {
         initialized = true;
     }
 
+    /// Constructs a `std.Io` instance backed by the given Portal I/O state.
     fn io(state: *PortalIoState) std.Io {
         ensureInitialized();
         return .{ .userdata = state, .vtable = &vtable };
     }
 
+    /// Dispatches streaming I/O operations to Portal-backed implementations.
     fn operate(_: ?*anyopaque, operation: std.Io.Operation) std.Io.Cancelable!std.Io.Operation.Result {
         return switch (operation) {
             .file_read_streaming => |o| .{ .file_read_streaming = fileReadStreaming(o.file, o.data) },
@@ -71,6 +84,7 @@ pub const PortalIo = struct {
         };
     }
 
+    /// Reads from a Portal file into a scatter/gather destination.
     fn fileReadStreaming(file: std.Io.File, data: []const []u8) std.Io.Operation.FileReadStreaming.Result {
         if (data.len == 0) return 0;
         var portal_file: sdk.fs.File = .{ .handle = @intCast(file.handle) };
@@ -94,6 +108,7 @@ pub const PortalIo = struct {
         return total;
     }
 
+    /// Writes to a Portal file from header/data buffers and optional splat repetition.
     fn fileWriteStreaming(
         file: std.Io.File,
         header: []const u8,
@@ -126,6 +141,7 @@ pub const PortalIo = struct {
         return total;
     }
 
+    /// Writes as many bytes as possible, mapping Portal errors to `std.Io` errors.
     fn writeSome(file: *sdk.fs.File, bytes: []const u8) std.Io.Operation.FileWriteStreaming.Result {
         if (bytes.len == 0) return 0;
         return file.write(bytes) catch |err| switch (err) {
@@ -137,10 +153,12 @@ pub const PortalIo = struct {
         };
     }
 
+    /// Portal files are treated as unseekable for `std.Io`.
     fn fileReadPositional(_: ?*anyopaque, _: std.Io.File, _: []const []u8, _: u64) std.Io.File.ReadPositionalError!usize {
         return error.Unseekable;
     }
 
+    /// Portal files are treated as unseekable for `std.Io`.
     fn fileWritePositional(
         _: ?*anyopaque,
         _: std.Io.File,
@@ -152,14 +170,17 @@ pub const PortalIo = struct {
         return error.Unseekable;
     }
 
+    /// Portal files are treated as unseekable for `std.Io`.
     fn fileSeekBy(_: ?*anyopaque, _: std.Io.File, _: i64) std.Io.File.SeekError!void {
         return error.Unseekable;
     }
 
+    /// Portal files are treated as unseekable for `std.Io`.
     fn fileSeekTo(_: ?*anyopaque, _: std.Io.File, _: u64) std.Io.File.SeekError!void {
         return error.Unseekable;
     }
 
+    /// Closes Portal file handles for `std.Io`.
     fn fileClose(_: ?*anyopaque, files: []const std.Io.File) void {
         for (files) |f| {
             var portal_file: sdk.fs.File = .{ .handle = @intCast(f.handle) };
@@ -167,6 +188,7 @@ pub const PortalIo = struct {
         }
     }
 
+    /// Reads a single directory entry name, supporting reset by reopening.
     fn dirRead(userdata: ?*anyopaque, r: *std.Io.Dir.Reader, out: []std.Io.Dir.Entry) std.Io.Dir.Reader.Error!usize {
         const state: *PortalIoState = @ptrCast(@alignCast(userdata orelse return error.SystemResources));
         if (out.len == 0) return 0;
@@ -218,6 +240,7 @@ pub const PortalIo = struct {
         return 1;
     }
 
+    /// Closes directory handles and drops any registered state.
     fn dirClose(userdata: ?*anyopaque, dirs: []const std.Io.Dir) void {
         const state: *PortalIoState = @ptrCast(@alignCast(userdata orelse return));
         for (dirs) |d| {
@@ -229,13 +252,17 @@ pub const PortalIo = struct {
     }
 };
 
+/// WebDAV filesystem adapter backed by Portal host filesystem operations.
 pub const PortalFs = struct {
+    /// Shared I/O state used for directory iteration bookkeeping.
     io_state: *PortalIoState = undefined,
 
+    /// Returns a `std.Io` instance for this filesystem adapter.
     pub fn getIo(self: *PortalFs) std.Io {
         return PortalIo.io(self.io_state);
     }
 
+    /// Returns file metadata for a relative path, or null if not found.
     pub fn stat(_: *PortalFs, rel: []const u8) !?std.Io.File.Stat {
         const md = metadataFromRel(rel) catch |err| switch (err) {
             sdk.fs.Error.NotFound => return null,
@@ -258,6 +285,7 @@ pub const PortalFs = struct {
         };
     }
 
+    /// Opens an existing file for reading.
     pub fn openRead(_: *PortalFs, rel: []const u8) !std.Io.File {
         var abs_buf: [256]u8 = undefined;
         const abs = absPathZ(&abs_buf, rel);
@@ -265,6 +293,7 @@ pub const PortalFs = struct {
         return .{ .handle = @intCast(file.handle), .flags = .{ .nonblocking = false } };
     }
 
+    /// Opens a directory for iteration and registers its handle with the I/O state.
     pub fn openDirIter(self: *PortalFs, rel: []const u8) !std.Io.Dir {
         var abs_buf: [256]u8 = undefined;
         const abs = absPathZ(&abs_buf, rel);
@@ -274,6 +303,7 @@ pub const PortalFs = struct {
         return .{ .handle = @intCast(dir.handle) };
     }
 
+    /// Creates or opens a file for writing.
     pub fn createFile(_: *PortalFs, rel: []const u8, truncate: bool) !std.Io.File {
         var abs_buf: [256]u8 = undefined;
         const abs = absPathZ(&abs_buf, rel);
@@ -283,18 +313,21 @@ pub const PortalFs = struct {
         return .{ .handle = @intCast(file.handle), .flags = .{ .nonblocking = false } };
     }
 
+    /// Creates a directory at the given relative path.
     pub fn makeDir(_: *PortalFs, rel: []const u8) !void {
         var abs_buf: [256]u8 = undefined;
         const abs = absPathZ(&abs_buf, rel);
         sdk.fs.Dir.mkdir(abs) catch |err| return mapFsToIoError(err);
     }
 
+    /// Deletes a file at the given relative path.
     pub fn deleteFile(_: *PortalFs, rel: []const u8) !void {
         var abs_buf: [256]u8 = undefined;
         const abs = absPathZ(&abs_buf, rel);
         sdk.fs.remove(abs) catch |err| return mapFsToIoError(err);
     }
 
+    /// Deletes an empty directory at the given relative path.
     pub fn deleteDir(_: *PortalFs, rel: []const u8) !void {
         if (!isDirEmpty(rel)) return error.DirNotEmpty;
         var abs_buf: [256]u8 = undefined;
@@ -302,6 +335,7 @@ pub const PortalFs = struct {
         sdk.fs.Dir.rmdir(abs) catch |err| return mapFsToIoError(err);
     }
 
+    /// Renames (moves) a path; falls back to copy+delete when not supported atomically.
     pub fn rename(_: *PortalFs, from: []const u8, to: []const u8) !void {
         // Try portal-native rename first for MOVE efficiency/atomicity.
         // On any failure, request handler fallback (copy+delete).
@@ -313,7 +347,9 @@ pub const PortalFs = struct {
     }
 };
 
+/// WebDAV system adapter backed by the Portal runtime's RTC.
 pub const PortalSys = struct {
+    /// Returns the current UTC time as seconds since Unix epoch, or 0 if unavailable.
     pub fn nowUtcSeconds(_: *PortalSys) i64 {
         if (!sdk.rtc.isEnabled()) return 0;
         const dt = sdk.rtc.getDatetime() catch return 0;
@@ -321,6 +357,7 @@ pub const PortalSys = struct {
     }
 };
 
+/// Converts a relative path to a Portal absolute (leading `/`) NUL-terminated path.
 fn absPathZ(buf: []u8, rel: []const u8) [:0]const u8 {
     std.debug.assert(buf.len >= 2);
     std.debug.assert(rel.len <= 254);
@@ -334,6 +371,7 @@ fn absPathZ(buf: []u8, rel: []const u8) [:0]const u8 {
     return buf[0 .. 1 + rel.len :0];
 }
 
+/// Joins `base` and `name` into `buf`, returning the resulting relative path.
 fn joinRel(buf: []u8, base: []const u8, name: []const u8) ![]const u8 {
     if (base.len == 0) {
         if (name.len > buf.len) return error.PathTooLong;
@@ -348,18 +386,21 @@ fn joinRel(buf: []u8, base: []const u8, name: []const u8) ![]const u8 {
     return buf[0..need];
 }
 
+/// Reads Portal filesystem metadata for a relative path.
 fn metadataFromRel(rel: []const u8) sdk.fs.Error!sdk.fs.Metadata {
     var abs_buf: [256]u8 = undefined;
     const abs = absPathZ(&abs_buf, rel);
     return sdk.fs.metadata(abs);
 }
 
+/// Reads Portal filesystem modification time (seconds) for a relative path.
 fn mtimeFromRel(rel: []const u8) sdk.fs.Error!i64 {
     var abs_buf: [256]u8 = undefined;
     const abs = absPathZ(&abs_buf, rel);
     return sdk.fs.mtime(abs);
 }
 
+/// Returns true if the directory has no entries other than `.` and `..`.
 fn isDirEmpty(rel: []const u8) bool {
     var abs_buf: [256]u8 = undefined;
     const abs = absPathZ(&abs_buf, rel);
@@ -376,6 +417,7 @@ fn isDirEmpty(rel: []const u8) bool {
     }
 }
 
+/// Maps Portal filesystem errors into `std.Io`-style errors.
 fn mapFsToIoError(err: sdk.fs.Error) anyerror {
     return switch (err) {
         sdk.fs.Error.NotFound => error.FileNotFound,
@@ -386,6 +428,7 @@ fn mapFsToIoError(err: sdk.fs.Error) anyerror {
     };
 }
 
+/// Converts a Portal RTC `DateTime` to a Unix timestamp (seconds, UTC).
 fn dateTimeToUnix(dt: sdk.rtc.DateTime) i64 {
     // Gregorian calendar to Unix timestamp, UTC. (Valid for years >= 1970.)
     const year: i32 = dt.year;

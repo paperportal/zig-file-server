@@ -2,18 +2,23 @@ const std = @import("std");
 const sdk = @import("paper_portal_sdk");
 const wds = @import("webdav_server");
 
-const webdav = wds.webdav;
-
+/// Buffered socket connection utilities for parsing and responding to HTTP-like requests.
 pub const Connection = struct {
+    /// Underlying Portal socket.
     sock: *sdk.socket.Socket,
+    /// Scratch buffer used for incremental reads (header parsing, chunked decoding).
     buf: [16 * 1024]u8 = undefined,
+    /// Start offset of unread bytes within `buf`.
     start: usize = 0,
+    /// End offset of unread bytes within `buf`.
     end: usize = 0,
 
+    /// Initializes a buffered connection wrapper for `sock`.
     pub fn init(sock: *sdk.socket.Socket) Connection {
         return .{ .sock = sock };
     }
 
+    /// Reads more data into the internal buffer, compacting when needed.
     fn fill(self: *Connection, timeout_ms: i32) !void {
         if (self.start > 0 and self.start == self.end) {
             self.start = 0;
@@ -34,6 +39,7 @@ pub const Connection = struct {
         self.end += n;
     }
 
+    /// Reads a single byte, blocking up to `timeout_ms`.
     fn readByte(self: *Connection, timeout_ms: i32) !u8 {
         if (self.start == self.end) {
             try self.fill(timeout_ms);
@@ -43,6 +49,7 @@ pub const Connection = struct {
         return b;
     }
 
+    /// Reads up to `dest.len` bytes, blocking up to `timeout_ms`.
     fn readInto(self: *Connection, dest: []u8, timeout_ms: i32) !usize {
         if (dest.len == 0) return 0;
 
@@ -61,6 +68,7 @@ pub const Connection = struct {
         return n;
     }
 
+    /// Reads a single CRLF-terminated line into `storage`, appending after `used.*`.
     pub fn readLineInto(self: *Connection, storage: []u8, used: *usize, timeout_ms: i32) ![]const u8 {
         const start = used.*;
         while (true) {
@@ -76,12 +84,14 @@ pub const Connection = struct {
         return storage[start..end];
     }
 
+    /// Reads a single CRLF-terminated line into `buf`.
     fn readLine(self: *Connection, buf: []u8, timeout_ms: i32) ![]const u8 {
         var used: usize = 0;
         const line = try self.readLineInto(buf, &used, timeout_ms);
         return line;
     }
 
+    /// Sends all bytes, retrying until completion or socket error.
     fn sendAll(self: *Connection, bytes: []const u8) !void {
         var off: usize = 0;
         while (off < bytes.len) {
@@ -94,6 +104,7 @@ pub const Connection = struct {
         }
     }
 
+    /// Writes a minimal HTTP 400 response and closes the connection.
     pub fn sendBadRequest(self: *Connection) !void {
         const body = "bad request\n";
         var head_buf: [256]u8 = undefined;
@@ -111,14 +122,16 @@ pub const Connection = struct {
     }
 };
 
+/// Parses an HTTP request line into `(method, target)`.
 pub fn parseRequestLine(line: []const u8) !struct { []const u8, []const u8 } {
     const sp1 = std.mem.indexOfScalar(u8, line, ' ') orelse return error.BadRequest;
     const sp2 = std.mem.indexOfScalarPos(u8, line, sp1 + 1, ' ') orelse return error.BadRequest;
     return .{ line[0..sp1], line[sp1 + 1 .. sp2] };
 }
 
-pub fn requestWantsClose(headers: []const webdav.Header) bool {
-    const v = webdav.types.headerValue(headers, "connection") orelse return false;
+/// Returns true if the request includes `Connection: close`.
+pub fn requestWantsClose(headers: []const wds.webdav.Header) bool {
+    const v = wds.webdav.types.headerValue(headers, "connection") orelse return false;
     var it = std.mem.tokenizeAny(u8, v, ",");
     while (it.next()) |token| {
         const t = std.mem.trim(u8, token, " \t");
@@ -127,39 +140,52 @@ pub fn requestWantsClose(headers: []const webdav.Header) bool {
     return false;
 }
 
+/// HTTP request body reader supporting fixed-length and chunked transfer encoding.
 pub const Body = struct {
+    /// Connection used to read body bytes.
     conn: *Connection,
+    /// Selected body decoding mode derived from request headers.
     mode: Mode,
 
+    /// Body decoding mode.
     const Mode = union(enum) {
+        /// No request body.
         none,
+        /// Read exactly the given number of bytes.
         content_length: u64,
+        /// Read chunked transfer encoding.
         chunked: Chunked,
     };
 
+    /// Chunked transfer decoding state.
     const Chunked = struct {
+        /// Remaining unread bytes in the current chunk.
         remaining_in_chunk: u64 = 0,
+        /// Whether the terminal `0` chunk has been consumed.
         done: bool = false,
     };
 
-    pub fn init(conn: *Connection, headers: []const webdav.Header) Body {
-        if (webdav.types.headerValue(headers, "transfer-encoding")) |te| {
+    /// Initializes a body decoder from request headers.
+    pub fn init(conn: *Connection, headers: []const wds.webdav.Header) Body {
+        if (wds.webdav.types.headerValue(headers, "transfer-encoding")) |te| {
             if (std.mem.indexOf(u8, te, "chunked") != null or std.mem.indexOf(u8, te, "Chunked") != null) {
                 return .{ .conn = conn, .mode = .{ .chunked = .{} } };
             }
         }
-        if (webdav.types.headerValue(headers, "content-length")) |cl| {
+        if (wds.webdav.types.headerValue(headers, "content-length")) |cl| {
             const len = std.fmt.parseInt(u64, cl, 10) catch 0;
             return .{ .conn = conn, .mode = .{ .content_length = len } };
         }
         return .{ .conn = conn, .mode = .none };
     }
 
+    /// `webdav.BodyReader` adapter: reads body bytes into `dest`.
     pub fn readFn(ctx: *anyopaque, dest: []u8) anyerror!usize {
         const self: *Body = @ptrCast(@alignCast(ctx));
         return self.read(dest);
     }
 
+    /// Reads up to `dest.len` bytes from the request body.
     fn read(self: *Body, dest: []u8) anyerror!usize {
         if (dest.len == 0) return 0;
         return switch (self.mode) {
@@ -176,6 +202,7 @@ pub const Body = struct {
         };
     }
 
+    /// Reads from a `Transfer-Encoding: chunked` body.
     fn readChunked(self: *Body, dest: []u8, st: *Chunked) anyerror!usize {
         if (st.done) return 0;
 
@@ -211,6 +238,7 @@ pub const Body = struct {
     }
 };
 
+/// Reads and discards any remaining request body bytes.
 pub fn drainBody(body: *Body) !void {
     var buf: [1024]u8 = undefined;
     while (true) {
@@ -219,14 +247,21 @@ pub fn drainBody(body: *Body) !void {
     }
 }
 
+/// `webdav.ResponseWriter` adapter that writes HTTP/1.1 responses to a `Connection`.
 pub const ResponseCtx = struct {
+    /// Connection used to send response bytes.
     conn: *Connection,
+    /// Whether the response should close the connection.
     close_after_response: bool = false,
+    /// Whether response headers have been written.
     wrote_head: bool = false,
+    /// Whether the response is using chunked transfer encoding.
     chunked: bool = false,
+    /// Whether the response has been finalized.
     finished: bool = false,
 
-    pub fn writeHeadFn(ctx: *anyopaque, status: u16, headers: []const webdav.Header, body_mode: webdav.BodyMode) anyerror!void {
+    /// Writes the response status line + headers, and configures body mode.
+    pub fn writeHeadFn(ctx: *anyopaque, status: u16, headers: []const wds.webdav.Header, body_mode: wds.webdav.BodyMode) anyerror!void {
         const self: *ResponseCtx = @ptrCast(@alignCast(ctx));
         if (self.wrote_head) return;
         self.wrote_head = true;
@@ -259,6 +294,7 @@ pub const ResponseCtx = struct {
         try self.conn.sendAll("\r\n");
     }
 
+    /// Writes the full response body buffer.
     pub fn writeAllFn(ctx: *anyopaque, bytes: []const u8) anyerror!void {
         const self: *ResponseCtx = @ptrCast(@alignCast(ctx));
         if (!self.wrote_head) return error.MissingResponseHead;
@@ -267,6 +303,7 @@ pub const ResponseCtx = struct {
         try self.conn.sendAll(bytes);
     }
 
+    /// Writes a single response body chunk (or raw bytes when not chunked).
     pub fn writeChunkFn(ctx: *anyopaque, bytes: []const u8) anyerror!void {
         const self: *ResponseCtx = @ptrCast(@alignCast(ctx));
         if (!self.wrote_head) return error.MissingResponseHead;
@@ -280,6 +317,7 @@ pub const ResponseCtx = struct {
         try self.conn.sendAll("\r\n");
     }
 
+    /// Finalizes the response, writing any required terminators.
     pub fn finishFn(ctx: *anyopaque) anyerror!void {
         const self: *ResponseCtx = @ptrCast(@alignCast(ctx));
         if (self.finished) return;
@@ -293,6 +331,7 @@ pub const ResponseCtx = struct {
     }
 };
 
+/// Returns an HTTP reason phrase for common status codes.
 fn reasonPhrase(status: u16) []const u8 {
     return switch (status) {
         200 => "OK",

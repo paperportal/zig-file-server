@@ -1,27 +1,39 @@
 const std = @import("std");
 const sdk = @import("paper_portal_sdk");
 const display = sdk.display;
-const microtask = sdk.microtask;
 const ui = sdk.ui;
 const wd = @import("webdav.zig");
 
+/// UI layout metrics and button rectangles.
 const Layout = struct {
+    /// X coordinate for the title label.
     title_x: i32,
+    /// Y coordinate for the title label.
     title_y: i32,
+    /// X coordinate for the status label.
     status_x: i32,
+    /// Y coordinate for the status label.
     status_y: i32,
+    /// Start/stop button rectangle.
     start_stop_rect: ui.Rect,
+    /// Exit button rectangle.
     exit_rect: ui.Rect,
 };
 
+/// Tap location in display coordinates.
 const Tap = struct {
+    /// Tap X coordinate.
     x: i32,
+    /// Tap Y coordinate.
     y: i32,
 };
 
+/// Main UI scene containing the WebDAV service state and UI handlers.
 const MainScene = struct {
+    /// WebDAV server instance controlled by the UI.
     webdav: wd.WebDavService = .{},
 
+    /// Draws the full UI for the current state.
     pub fn draw(self: *MainScene, ctx: *ui.Context) anyerror!void {
         _ = ctx;
         const layout = computeLayout();
@@ -45,6 +57,7 @@ const MainScene = struct {
         try display.endWrite();
     }
 
+    /// Receives gesture events and triggers state changes/redraws.
     pub fn onGesture(self: *MainScene, ctx: *ui.Context, nav: *ui.Navigator, ev: ui.GestureEvent) anyerror!void {
         _ = ctx;
         _ = nav;
@@ -61,6 +74,7 @@ const MainScene = struct {
         }
     }
 
+    /// Draws a simple outlined button with centered text.
     fn drawButton(rect: ui.Rect, label: []const u8) display.Error!void {
         try display.fillRect(rect.x, rect.y, rect.w, rect.h, display.colors.WHITE);
         try display.drawRect(rect.x, rect.y, rect.w, rect.h, display.colors.BLACK);
@@ -72,6 +86,7 @@ const MainScene = struct {
         try display.text.setDatum(.top_left);
     }
 
+    /// Computes UI layout based on the current display resolution.
     fn computeLayout() Layout {
         const screen_w = display.width();
         const screen_h = display.height();
@@ -107,6 +122,7 @@ const MainScene = struct {
         };
     }
 
+    /// Handles a tap event and returns whether the UI should redraw.
     fn handleTap(self: *MainScene, x: i32, y: i32) !bool {
         const layout = computeLayout();
 
@@ -132,19 +148,24 @@ const MainScene = struct {
     }
 };
 
+/// Global main scene instance.
 var g_main: MainScene = .{};
 
+/// Background task that ticks the WebDAV service periodically.
 const UiLoopTask = struct {
-    pub fn step(self: *UiLoopTask, now_ms: u32) anyerror!microtask.Action {
+    /// One scheduler step; ticks the service and requests the next sleep interval.
+    pub fn step(self: *UiLoopTask, now_ms: u32) anyerror!sdk.microtask.Action {
         _ = self;
         const now_ms_i32: i32 = if (now_ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(now_ms);
         g_main.webdav.tick(now_ms_i32);
-        return microtask.Action.sleepMs(33);
+        return sdk.microtask.Action.sleepMs(33);
     }
 };
 
+/// Global UI loop task instance.
 var g_ui_loop_task: UiLoopTask = .{};
 
+/// App entrypoint: initializes Portal subsystems, sets up the UI, and starts the tick loop.
 pub fn main() void {
     sdk.core.begin() catch |err| {
         sdk.core.log.ferr("main: core.begin failed: {s}", .{@errorName(err)});
@@ -174,7 +195,7 @@ pub fn main() void {
         return;
     };
 
-    _ = microtask.start(microtask.Task.from(UiLoopTask, &g_ui_loop_task), 33, 0) catch |err| {
+    _ = sdk.microtask.start(sdk.microtask.Task.from(UiLoopTask, &g_ui_loop_task), 33, 0) catch |err| {
         sdk.core.log.ferr("main: microtask.start failed: {s}", .{@errorName(err)});
         ui.scene.deinitStack();
         return;
@@ -184,6 +205,7 @@ pub fn main() void {
     return;
 }
 
+/// Portal shutdown callback exported for the host runtime.
 pub export fn ppShutdown() i32 {
     g_main.webdav.stop();
     ui.scene.deinitStack();
