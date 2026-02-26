@@ -2,6 +2,6 @@
 
 TODO
 
-## Naming conventions (Zig)
+## Naming Conventions
 
 Use `lowerCamelCase` for all functions, except functions that return a type (Zig), which use `PascalCase`.

@@ -5,8 +5,8 @@ Always use Zig executable and standard libraries at `~/zig/zig`.
 TODO
 
 ## Build, Test, and Development Commands
-- `~/zig/zig build`: Builds `ftp-server` application.
-- `~/zig/zig build package`: Packages the `ftp-server` application to distributable papp package.
+- `~/zig/zig build`: Builds the application.
+- `~/zig/zig build package`: Packages the application to distributable papp package.
 
 ## Coding Style & Naming Conventions
 Use Zig 0.16 APIs and keep code `~/zig/zig fmt` clean before opening a PR.

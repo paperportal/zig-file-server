@@ -3,7 +3,7 @@ const sdk = @import("paper_portal_sdk");
 const display = sdk.display;
 const microtask = sdk.microtask;
 const ui = sdk.ui;
-const ftp_service = @import("ftp_service.zig");
+const wd = @import("webdav_service.zig");
 
 const Layout = struct {
     title_x: i32,
@@ -20,7 +20,7 @@ const Tap = struct {
 };
 
 const MainScene = struct {
-    ftp: ftp_service.FtpService = .{},
+    webdav: wd.WebDavService = .{},
 
     pub fn draw(self: *MainScene, ctx: *ui.Context) anyerror!void {
         _ = ctx;
@@ -36,10 +36,10 @@ const MainScene = struct {
         try display.text.draw("File Server", layout.title_x, layout.title_y);
 
         try display.text.setSize(1.5, 1.5);
-        const status_text = if (self.ftp.isRunning()) "Server is running" else "Server is not running";
+        const status_text = if (self.webdav.isRunning()) "Server is running" else "Server is not running";
         try display.text.draw(status_text, layout.status_x, layout.status_y);
 
-        const start_stop_label = if (self.ftp.isRunning()) "Stop" else "Start";
+        const start_stop_label = if (self.webdav.isRunning()) "Stop" else "Start";
         try drawButton(layout.start_stop_rect, start_stop_label);
         try drawButton(layout.exit_rect, "Exit");
         try display.endWrite();
@@ -111,17 +111,17 @@ const MainScene = struct {
         const layout = computeLayout();
 
         if (layout.start_stop_rect.contains(x, y)) {
-            if (self.ftp.isRunning()) {
-                self.ftp.stop();
+            if (self.webdav.isRunning()) {
+                self.webdav.stop();
                 return true;
             }
 
-            try self.ftp.start();
+            try self.webdav.start();
             return true;
         }
 
         if (layout.exit_rect.contains(x, y)) {
-            self.ftp.stop();
+            self.webdav.stop();
             sdk.core.exitApp() catch |err| {
                 sdk.core.log.ferr("exit_app failed: {s}", .{@errorName(err)});
             };
@@ -138,7 +138,7 @@ const UiLoopTask = struct {
     pub fn step(self: *UiLoopTask, now_ms: u32) anyerror!microtask.Action {
         _ = self;
         const now_ms_i32: i32 = if (now_ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(now_ms);
-        g_main.ftp.tick(now_ms_i32);
+        g_main.webdav.tick(now_ms_i32);
         return microtask.Action.sleepMs(33);
     }
 };
@@ -185,7 +185,7 @@ pub fn main() void {
 }
 
 pub export fn ppShutdown() i32 {
-    g_main.ftp.stop();
+    g_main.webdav.stop();
     ui.scene.deinitStack();
     return 0;
 }

@@ -15,6 +15,6 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const ftp_dep = b.dependency("zig_ftp_server", .{});
-    app.exe.root_module.addImport("ftp_server", ftp_dep.module("ftp_server"));
+    const webdav_dep = b.dependency("zig_webdav_server", .{});
+    app.exe.root_module.addImport("webdav_server", webdav_dep.module("zig_webdav_server"));
 }
