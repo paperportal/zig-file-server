@@ -3,7 +3,7 @@ const sdk = @import("paper_portal_sdk");
 const display = sdk.display;
 const microtask = sdk.microtask;
 const ui = sdk.ui;
-const wd = @import("webdav_service.zig");
+const wd = @import("webdav.zig");
 
 const Layout = struct {
     title_x: i32,
