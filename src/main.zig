@@ -36,25 +36,7 @@ const MainScene = struct {
     /// Draws the full UI for the current state.
     pub fn draw(self: *MainScene, ctx: *ui.Context) anyerror!void {
         _ = ctx;
-        const layout = computeLayout();
-
-        try display.startWrite();
-        try display.fillScreen(display.colors.WHITE);
-
-        try display.text.setDatum(.top_left);
-        try display.text.setColor(display.colors.BLACK, display.colors.WHITE);
-
-        try display.text.setSize(3.0, 3.0);
-        try display.text.draw("File Server", layout.title_x, layout.title_y);
-
-        try display.text.setSize(1.5, 1.5);
-        const status_text = if (self.webdav.isRunning()) "Server is running" else "Server is not running";
-        try display.text.draw(status_text, layout.status_x, layout.status_y);
-
-        const start_stop_label = if (self.webdav.isRunning()) "Stop" else "Start";
-        try drawButton(layout.start_stop_rect, start_stop_label);
-        try drawButton(layout.exit_rect, "Exit");
-        try display.endWrite();
+        try self.drawMain();
     }
 
     /// Receives gesture events and triggers state changes/redraws.
@@ -72,6 +54,37 @@ const MainScene = struct {
                 };
             }
         }
+    }
+
+    /// Draws the file server UI and updates the display.
+    fn drawMain(self: *MainScene) anyerror!void {
+        const screen_w = display.width();
+        const screen_h = display.height();
+        if (screen_w <= 0 or screen_h <= 0) return;
+
+        const layout = computeLayout();
+
+        try display.epd.setMode(display.epd.TEXT);
+        try display.startWrite();
+        defer display.endWrite() catch {};
+
+        try display.fillRect(0, 0, screen_w, screen_h, display.colors.WHITE);
+
+        try display.text.setDatum(.top_left);
+        try display.text.setColor(display.colors.BLACK, display.colors.WHITE);
+
+        try display.text.setSize(3.0, 3.0);
+        try display.text.draw("File Server", layout.title_x, layout.title_y);
+
+        try display.text.setSize(1.5, 1.5);
+        const status_text = if (self.webdav.isRunning()) "Server is running" else "Server is not running";
+        try display.text.draw(status_text, layout.status_x, layout.status_y);
+
+        const start_stop_label = if (self.webdav.isRunning()) "Stop" else "Start";
+        try drawButton(layout.start_stop_rect, start_stop_label);
+        try drawButton(layout.exit_rect, "Exit");
+
+        try display.updateRect(0, 0, screen_w, screen_h);
     }
 
     /// Draws a simple outlined button with centered text.
@@ -132,7 +145,9 @@ const MainScene = struct {
                 return true;
             }
 
-            try self.webdav.start();
+            self.webdav.start() catch |err| {
+                sdk.core.log.ferr("webdav: start failed: {s}", .{@errorName(err)});
+            };
             return true;
         }
 
@@ -186,8 +201,12 @@ pub fn main() void {
     }
 
     display.epd.setMode(display.epd.TEXT) catch {};
-    display.text.setFont(1) catch {};
-    display.text.setWrap(false, false) catch {};
+    display.vlw.useSystem(display.vlw.SystemFont.inter, 12) catch {};
+
+    g_main.drawMain() catch |err| {
+        sdk.core.log.ferr("main: initial draw failed: {s}", .{@errorName(err)});
+        return;
+    };
 
     ui.scene.set(ui.Scene.from(MainScene, &g_main)) catch |err| {
         sdk.core.log.ferr("main: ui.scene.set failed: {s}", .{@errorName(err)});

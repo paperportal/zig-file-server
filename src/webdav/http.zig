@@ -7,15 +7,15 @@ pub const Connection = struct {
     /// Underlying Portal socket.
     sock: *sdk.socket.Socket,
     /// Scratch buffer used for incremental reads (header parsing, chunked decoding).
-    buf: [16 * 1024]u8 = undefined,
+    buf: []u8,
     /// Start offset of unread bytes within `buf`.
     start: usize = 0,
     /// End offset of unread bytes within `buf`.
     end: usize = 0,
 
     /// Initializes a buffered connection wrapper for `sock`.
-    pub fn init(sock: *sdk.socket.Socket) Connection {
-        return .{ .sock = sock };
+    pub fn init(sock: *sdk.socket.Socket, buf: []u8) Connection {
+        return .{ .sock = sock, .buf = buf };
     }
 
     /// Reads more data into the internal buffer, compacting when needed.

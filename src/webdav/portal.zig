@@ -223,6 +223,13 @@ pub const PortalIo = struct {
             r.state = .finished;
             return 0;
         };
+        if (name_len > buf_bytes.len) {
+            sdk.core.log.fwarn(
+                "PortalIo.dirRead: readdir returned name_len={d} > buffer={d} (dir_handle={d})",
+                .{ name_len, buf_bytes.len, r.dir.handle },
+            );
+            return error.SystemResources;
+        }
         const name = buf_bytes[0..name_len];
 
         var kind: std.Io.File.Kind = .unknown;

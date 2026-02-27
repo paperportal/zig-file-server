@@ -20,6 +20,20 @@ pub const WebDavService = struct {
     /// WebDAV request handler instance (initialized on `start`).
     handler: ?wds.webdav.Handler = null,
 
+    /// Scratch buffer for `http.Connection` incremental reads.
+    ///
+    /// This intentionally lives in global data (not the WASM stack) to avoid blowing the host-configured
+    /// stack limits when a client connects.
+    conn_read_buf: [16 * 1024]u8 = undefined,
+    /// Scratch storage for request line + header bytes.
+    ///
+    /// Parsed `Header.name` / `Header.value` slices reference into this buffer.
+    header_storage: [16 * 1024]u8 = undefined,
+    /// Scratch header list storage (pairs reference `header_storage`).
+    headers_storage: [64]wds.webdav.Header = undefined,
+    /// Scratch storage for a copied request target (`raw_target` / `path` slices reference this buffer).
+    target_storage: [1024]u8 = undefined,
+
     /// Returns whether the server is currently running.
     pub fn isRunning(self: *const WebDavService) bool {
         return self.running;
@@ -42,6 +56,7 @@ pub const WebDavService = struct {
             var client = accepted.socket;
             defer client.close() catch {};
 
+            sdk.core.log.info("webdav: accepted client");
             handleConnection(self, &client) catch |err| {
                 sdk.core.log.ferr("webdav: connection error: {s}", .{@errorName(err)});
             };
@@ -112,15 +127,16 @@ fn handleConnection(self: *WebDavService, client: *sdk.socket.Socket) !void {
         if (self.handler) |*h| break :blk h;
         return;
     };
-    var conn = http.Connection.init(client);
+    var conn = http.Connection.init(client, self.conn_read_buf[0..]);
+    const header_bytes = self.header_storage[0..];
+    const headers = self.headers_storage[0..];
+    const target_buf = self.target_storage[0..];
 
     while (true) {
-        var header_bytes: [16 * 1024]u8 = undefined;
-        var headers: [64]wds.webdav.Header = undefined;
         var header_used: usize = 0;
         var headers_len: usize = 0;
 
-        const req_line = conn.readLineInto(&header_bytes, &header_used, 5_000) catch |err| switch (err) {
+        const req_line = conn.readLineInto(header_bytes, &header_used, 5_000) catch |err| switch (err) {
             error.UnexpectedEndOfStream => return,
             else => {
                 try conn.sendBadRequest();
@@ -135,7 +151,6 @@ fn handleConnection(self: *WebDavService, client: *sdk.socket.Socket) !void {
         };
         const method = parseMethod(method_s);
 
-        var target_buf: [1024]u8 = undefined;
         if (target_s.len > target_buf.len) {
             try conn.sendBadRequest();
             return;
@@ -143,9 +158,10 @@ fn handleConnection(self: *WebDavService, client: *sdk.socket.Socket) !void {
         @memcpy(target_buf[0..target_s.len], target_s);
         const raw_target = target_buf[0..target_s.len];
         const path = raw_target[0..(std.mem.indexOfScalar(u8, raw_target, '?') orelse raw_target.len)];
+        sdk.core.log.finfo("webdav: {s} {s}", .{ method_s, path });
 
         while (true) {
-            const line = conn.readLineInto(&header_bytes, &header_used, 5_000) catch {
+            const line = conn.readLineInto(header_bytes, &header_used, 5_000) catch {
                 try conn.sendBadRequest();
                 return;
             };
